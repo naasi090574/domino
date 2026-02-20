@@ -91,3 +91,52 @@ btnSave.addEventListener("click", ()=>{
 
 loadFromStorage();
 render();
+// ---------- КОД ДЛЯ GENIALLY ----------
+const btnEmbed = document.getElementById("btnEmbed");
+const embedModal = document.getElementById("embedModal");
+const btnEmbedClose = document.getElementById("btnEmbedClose");
+const btnEmbedCopy = document.getElementById("btnEmbedCopy");
+const embedCode = document.getElementById("embedCode");
+const embedHint = document.getElementById("embedHint");
+
+// Ссылка на игру (game.html) в этом же репозитории
+function makeEmbedIframe() {
+  const base = location.origin + location.pathname.replace(/index\.html$/,'');
+  const gameUrl = base + "game.html";
+
+  // Высоту можешь менять под свой слайд (720px — универсально)
+  return `<div style="width:100%;height:720px;">
+  <iframe
+    src="${gameUrl}"
+    style="width:100%;height:100%;border:0;border-radius:16px;overflow:hidden;"
+    allow="fullscreen"
+  ></iframe>
+</div>`;
+}
+
+btnEmbed?.addEventListener("click", () => {
+  embedHint.textContent = "";
+  embedCode.value = makeEmbedIframe();
+  embedModal.style.display = "block";
+});
+
+btnEmbedClose?.addEventListener("click", () => {
+  embedModal.style.display = "none";
+});
+
+// клик по затемнению закрывает
+embedModal?.addEventListener("click", (e) => {
+  if(e.target === embedModal) embedModal.style.display = "none";
+});
+
+btnEmbedCopy?.addEventListener("click", async () => {
+  try{
+    await navigator.clipboard.writeText(embedCode.value);
+    embedHint.textContent = "Скопировано ✅";
+  }catch(e){
+    // запасной способ
+    embedCode.select();
+    document.execCommand("copy");
+    embedHint.textContent = "Скопировано ✅";
+  }
+});
