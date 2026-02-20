@@ -28,8 +28,19 @@ const btnCenter = document.getElementById("btnCenter");
 const btnZoomIn = document.getElementById("btnZoomIn");
 const btnZoomOut = document.getElementById("btnZoomOut");
 
+/* Размеры (должны совпадать с style.css) */
+const TILE_W = 170;          // длинная сторона домино
+const TILE_H = 86;
+const GAP = 14;
+const STEP = TILE_W + GAP;   // шаг цепочки всегда по длинной стороне
+
+/* Пан/зум */
+let view = { x: 0, y: 0, scale: 1.0 };
+const SCALE_MIN = 0.80;
+const SCALE_MAX = 1.30;
+
 /* Состояние */
-let images = []; // 7 dataURL или placeholder
+let images = [];
 let pile = [];
 let p1 = [];
 let p2 = [];
@@ -38,53 +49,60 @@ let started = false;
 let choosingStart = false;
 let turn = 1; // 1 педагог, 2 ребёнок
 
-// цепочка без ветвлений
-let chain = []; // выложенные tiles с x,y,rot,swap
-let leftEnd = null;  // { value, x, y }
-let rightEnd = null; // { value, x, y }
+// цепочка (строго 2 конца)
+let chain = []; // tiles on board: {id,a,b,swap,rot,x,y}
+let ends = {
+  L: null, // { value, cx, cy, dir }
+  R: null
+};
 
-// пан/зум
-let view = { x: 0, y: 0, scale: 1.0 };
-const SCALE_MIN = 0.80;
-const SCALE_MAX = 1.30;
-
-/* Размеры костяшки (должны соответствовать CSS) */
-const TILE_W = 170;
-const TILE_H = 86;
-const GAP = 14;
-
-/* ИНИЦ */
 board.style.backgroundImage = `url("${BOARD_BG_URL}")`;
-
-loadImages();
 applyTransform();
+loadImages();
 
-/* --- helpers --- */
+/* ---------- helpers ---------- */
 function setStatus(msg){ statusEl.textContent = msg; }
 
+function decodeSetFromUrl(){
+  const url = new URL(window.location.href);
+  const set = url.searchParams.get("set");
+  if(!set) return null;
+
+  const b64 = set.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = b64 + "===".slice((b64.length + 3) % 4);
+  const bin = atob(pad);
+  const bytes = new Uint8Array([...bin].map(ch => ch.charCodeAt(0)));
+  const json = new TextDecoder().decode(bytes);
+  return JSON.parse(json);
+}
+
 function loadImages(){
-  // если в редакторе сохранили dataURL — берём их
+  // 1) пытаемся взять set= из URL (для Genially это главное)
+  try{
+    const fromUrl = decodeSetFromUrl();
+    if(Array.isArray(fromUrl) && fromUrl.length === 7){
+      images = fromUrl;
+      // на всякий случай сохраняем и в localStorage
+      localStorage.setItem(KEY, JSON.stringify(images));
+      return;
+    }
+  }catch(e){}
+
+  // 2) fallback: localStorage
   try{
     const raw = localStorage.getItem(KEY);
     const arr = raw ? JSON.parse(raw) : null;
-    if(Array.isArray(arr) && arr.length === 7 && arr.every(v => typeof v === "string" || v === null)){
+    if(Array.isArray(arr) && arr.length === 7){
       images = arr;
-    } else {
-      images = Array(7).fill(null);
+      return;
     }
-  }catch(e){
-    images = Array(7).fill(null);
-  }
-  // если чего-то нет — ставим простые заглушки (чтобы игра не ломалась)
-  for(let i=0;i<7;i++){
-    if(!images[i]){
-      images[i] = makePlaceholder(i+1);
-    }
-  }
+  }catch(e){}
+
+  // 3) если ничего нет — заглушки
+  images = Array.from({length:7}, (_,i)=>makePlaceholder(i+1));
 }
 
 function makePlaceholder(n){
-  // простая картинка-плейсхолдер через SVG dataURL
   const svg = `
   <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256">
     <rect width="256" height="256" rx="36" fill="#1a1a1a"/>
@@ -96,26 +114,24 @@ function makePlaceholder(n){
 
 function shuffle(arr){
   for(let i=arr.length-1;i>0;i--){
-    const j = Math.floor(Math.random()*(i+1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+    const j=Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]]=[arr[j],arr[i]];
   }
   return arr;
 }
 
 function gen28(){
-  const tiles = [];
-  let id = 0;
+  const tiles=[]; let id=0;
   for(let a=0;a<7;a++){
     for(let b=a;b<7;b++){
-      tiles.push({
-        id: "t"+(id++),
-        a, b,
-        rot: 0,     // 0 или 90 (для выкладки)
-        swap: false // меняем половинки местами, но не переворачиваем вверх ногами
-      });
+      tiles.push({ id:"t"+(id++), a,b, rot:0, swap:false });
     }
   }
   return tiles;
+}
+
+function getLR(tile){
+  return tile.swap ? {left: tile.b, right: tile.a} : {left: tile.a, right: tile.b};
 }
 
 function updateCounts(){
@@ -127,68 +143,56 @@ function setTurn(t){
   turn = t;
   panel1.classList.toggle("active", turn===1);
   panel2.classList.toggle("active", turn===2);
-  btnDraw.disabled = !started || choosingStart || hasMoveForCurrentPlayer();
-}
 
-function currentHand(){
-  return (turn===1) ? p1 : p2;
-}
-
-function hasMoveForCurrentPlayer(){
-  // если цепочка ещё не началась — “ход есть” условно
-  if(chain.length === 0) return true;
-  const hand = currentHand();
-  if(!leftEnd || !rightEnd) return false;
-  return hand.some(tile => tile.a===leftEnd.value || tile.b===leftEnd.value || tile.a===rightEnd.value || tile.b===rightEnd.value);
-}
-
-function computeEndGlows(){
-  if(chain.length === 0 || !leftEnd || !rightEnd){
-    leftGlow.style.display = "none";
-    rightGlow.style.display = "none";
+  if(!started || choosingStart){
+    btnDraw.disabled = true;
     return;
   }
-  leftGlow.style.display = "block";
-  rightGlow.style.display = "block";
-
-  const l = worldToScreen(leftEnd.x, leftEnd.y);
-  const r = worldToScreen(rightEnd.x, rightEnd.y);
-
-  leftGlow.style.left = l.x + "px";
-  leftGlow.style.top  = l.y + "px";
-
-  rightGlow.style.left = r.x + "px";
-  rightGlow.style.top  = r.y + "px";
+  btnDraw.disabled = hasMoveForCurrentPlayer();
+  if(!btnDraw.disabled) btnDraw.disabled = false;
 }
 
-function worldToScreen(wx, wy){
-  return {
-    x: wx*view.scale + view.x,
-    y: wy*view.scale + view.y
-  };
-}
-function screenToWorld(sx, sy){
-  return {
-    x: (sx - view.x)/view.scale,
-    y: (sy - view.y)/view.scale
-  };
+function currentHand(){ return (turn===1) ? p1 : p2; }
+
+function hasMoveForCurrentPlayer(){
+  if(chain.length===0) return true;
+  const hand = currentHand();
+  const L = ends.L?.value;
+  const R = ends.R?.value;
+  return hand.some(t => t.a===L || t.b===L || t.a===R || t.b===R);
 }
 
+function dirVec(dir){
+  if(dir==="E") return {x:1,y:0};
+  if(dir==="W") return {x:-1,y:0};
+  if(dir==="N") return {x:0,y:-1};
+  return {x:0,y:1}; // S
+}
+
+function glowPos(end){
+  const v = dirVec(end.dir);
+  return { x: end.cx + v.x*(STEP/2), y: end.cy + v.y*(STEP/2) };
+}
+
+/* ---------- pan/zoom: двигаем ТОЛЬКО layer, фон не трогаем ---------- */
 function applyTransform(){
-  board.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
   layer.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
   computeEndGlows();
 }
 
+function worldToScreen(wx, wy){
+  return { x: wx*view.scale + view.x, y: wy*view.scale + view.y };
+}
+function screenToWorld(sx, sy){
+  return { x: (sx - view.x)/view.scale, y: (sy - view.y)/view.scale };
+}
+
 function centerView(){
-  // центрируем по середине wrap
   const rect = boardWrap.getBoundingClientRect();
-  // если цепочки нет — просто центр
-  if(chain.length === 0){
+  if(chain.length===0){
     view.x = rect.width/2;
     view.y = rect.height/2;
-  }else{
-    // центр на первой костяшке
+  } else {
     const first = chain[0];
     view.x = rect.width/2 - first.x*view.scale;
     view.y = rect.height/2 - first.y*view.scale;
@@ -196,31 +200,46 @@ function centerView(){
   applyTransform();
 }
 
-/* ---- рендер ---- */
+/* ---------- glows ---------- */
+function computeEndGlows(){
+  if(chain.length===0 || !ends.L || !ends.R){
+    leftGlow.style.display="none";
+    rightGlow.style.display="none";
+    return;
+  }
+  leftGlow.style.display="block";
+  rightGlow.style.display="block";
+
+  const lp = glowPos(ends.L);
+  const rp = glowPos(ends.R);
+
+  const l = worldToScreen(lp.x, lp.y);
+  const r = worldToScreen(rp.x, rp.y);
+
+  leftGlow.style.left = l.x + "px";
+  leftGlow.style.top  = l.y + "px";
+  rightGlow.style.left = r.x + "px";
+  rightGlow.style.top  = r.y + "px";
+}
+
+/* ---------- render ---------- */
 function renderPanels(){
-  row1.innerHTML = "";
-  row2.innerHTML = "";
-  for(const t of p1) row1.appendChild(renderTileInPanel(t, 1));
-  for(const t of p2) row2.appendChild(renderTileInPanel(t, 2));
+  row1.innerHTML="";
+  row2.innerHTML="";
+  for(const t of p1) row1.appendChild(renderTileInPanel(t,1));
+  for(const t of p2) row2.appendChild(renderTileInPanel(t,2));
   updateCounts();
 }
 
 function renderChain(){
-  // очищаем и рисуем заново (для MVP нормально)
-  layer.innerHTML = "";
-  for(const t of chain){
-    const el = renderTileOnBoard(t);
-    layer.appendChild(el);
-  }
+  layer.innerHTML="";
+  for(const t of chain) layer.appendChild(renderTileOnBoard(t));
   computeEndGlows();
 }
 
 function renderTileInPanel(tile, owner){
   const el = document.createElement("div");
-  el.className = "tile" + (tile.rot===90 ? " rot90" : "");
-  el.dataset.id = tile.id;
-  el.dataset.owner = owner;
-
+  el.className = "tile" + (tile.rot===90 ? " rot90":"");
   el.innerHTML = `
     <div class="base"></div>
     <div class="half left"><img/></div>
@@ -229,45 +248,40 @@ function renderTileInPanel(tile, owner){
   `;
   el.querySelector(".base").style.backgroundImage = `url("${TILE_BASE_URL}")`;
 
-  const {left, right} = getLR(tile);
+  const {left,right}=getLR(tile);
   el.querySelector(".left img").src = images[left];
   el.querySelector(".right img").src = images[right];
 
-  // вращение
-  el.querySelector(".rotBtn").addEventListener("click", (e)=>{
+  el.querySelector(".rotBtn").addEventListener("click",(e)=>{
     e.stopPropagation();
-    tile.rot = (tile.rot===0) ? 90 : 0;
+    tile.rot = (tile.rot===0)?90:0;
     renderPanels();
   });
 
-  // перетаскивание (педагог мышкой управляет всегда)
-  el.addEventListener("pointerdown", (e)=>{
+  // drag
+  el.addEventListener("pointerdown",(e)=>{
     if(!started) return;
+
     if(choosingStart){
-      // на этапе выбора старта разрешаем клик: поставить в центр
-      handleChooseStart(tile, owner);
+      if(owner===turn) chooseStart(tile, owner);
       return;
     }
-    // строгая очередь: можно брать только из активной панели
-    if(owner !== turn) return;
+    if(owner!==turn) return;
 
     startDrag(tile, owner, e);
   });
 
-  // клик для старта (если не тач)
-  el.addEventListener("click", ()=>{
-    if(choosingStart){
-      handleChooseStart(tile, owner);
-    }
+  el.addEventListener("click",()=>{
+    if(choosingStart && owner===turn) chooseStart(tile, owner);
   });
 
   return el;
 }
 
 function renderTileOnBoard(tile){
-  const el = document.createElement("div");
-  el.className = "tile" + (tile.rot===90 ? " rot90" : "");
-  el.style.position = "absolute";
+  const el=document.createElement("div");
+  el.className = "tile" + (tile.rot===90 ? " rot90":"");
+  el.style.position="absolute";
   el.style.left = (tile.x - TILE_W/2) + "px";
   el.style.top  = (tile.y - TILE_H/2) + "px";
   el.innerHTML = `
@@ -277,265 +291,229 @@ function renderTileOnBoard(tile){
   `;
   el.querySelector(".base").style.backgroundImage = `url("${TILE_BASE_URL}")`;
 
-  const {left, right} = getLR(tile);
+  const {left,right}=getLR(tile);
   el.querySelector(".left img").src = images[left];
   el.querySelector(".right img").src = images[right];
+
   return el;
 }
 
-function getLR(tile){
-  // swap меняет местами половинки визуально (мы не переворачиваем картинку!)
-  if(!tile.swap) return { left: tile.a, right: tile.b };
-  return { left: tile.b, right: tile.a };
-}
-
-/* ---- старт/раздача ---- */
+/* ---------- game flow ---------- */
 function newGame(){
-  started = true;
-  choosingStart = true;
-  chain = [];
-  leftEnd = null;
-  rightEnd = null;
+  started=true;
+  choosingStart=true;
+  chain=[];
+  ends.L=null;
+  ends.R=null;
 
-  const deal = Number(dealSelect.value);
+  const deal=Number(dealSelect.value);
 
   pile = shuffle(gen28());
-  p1 = pile.splice(0, deal);
-  p2 = pile.splice(0, deal);
+  p1 = pile.splice(0,deal);
+  p2 = pile.splice(0,deal);
+  [...p1,...p2].forEach(t=>{t.rot=0;t.swap=false;});
 
-  // сбрасываем повороты/свапы в руках
-  [...p1, ...p2].forEach(t => { t.rot=0; t.swap=false; });
-
+  setTurn(1);
   renderPanels();
   renderChain();
-
-  setTurn(1); // первым ходом всегда педагог (ты так хотела — проще)
-  setStatus("Выберите стартовую костяшку (клик по костяшке активного игрока).");
-  btnDraw.disabled = true;
-
   centerView();
+  setStatus("Выберите стартовую костяшку (клик по костяшке активного игрока).");
 }
 
-function handleChooseStart(tile, owner){
-  if(owner !== turn) return;
-
-  // ставим в центр (0,0)
-  const placed = {...tile, x: 0, y: 0};
-  // убираем из руки
+function chooseStart(tile, owner){
+  // ставим в центр
+  const placed = {...tile, x:0, y:0};
   removeFromOwner(tile.id, owner);
   chain.push(placed);
 
-  // концы: слева значение left, справа right
-  const {left, right} = getLR(placed);
-  leftEnd = { value: left, x: placed.x - (TILE_W/2 + GAP), y: placed.y };
-  rightEnd = { value: right, x: placed.x + (TILE_W/2 + GAP), y: placed.y };
+  const {left,right} = getLR(placed);
 
-  choosingStart = false;
-  setStatus("Игра началась. Перетащите костяшку к одному из концов цепочки.");
+  // два конца: левый смотрит влево, правый вправо
+  ends.L = { value:left,  cx: placed.x, cy: placed.y, dir:"W" };
+  ends.R = { value:right, cx: placed.x, cy: placed.y, dir:"E" };
+
+  choosingStart=false;
   renderPanels();
   renderChain();
+  centerView();
 
-  // ход переходит ребёнку (строгая очередь)
+  // ход переходит ребёнку
   setTurn(2);
-  btnDraw.disabled = hasMoveForCurrentPlayer();
+  setStatus("Сделайте ход: перетащите костяшку к одному из концов цепочки.");
+  if(!hasMoveForCurrentPlayer()){
+    setStatus("Ходов нет — нажмите «Добрать».");
+    btnDraw.disabled = false;
+  }
 }
 
-/* ---- добор ---- */
+function removeFromOwner(id, owner){
+  const hand = owner===1 ? p1 : p2;
+  const idx = hand.findIndex(t=>t.id===id);
+  if(idx>=0) hand.splice(idx,1);
+}
+
 function drawTile(){
   if(!started || choosingStart) return;
-  if(hasMoveForCurrentPlayer()) return; // есть ход — добор запрещён
-  if(pile.length === 0){
+  if(hasMoveForCurrentPlayer()) return;
+
+  if(pile.length===0){
     setStatus("Ходов нет. Базар пуст. Игра завершена.");
-    btnDraw.disabled = true;
+    btnDraw.disabled=true;
     return;
   }
+
   const t = pile.pop();
   t.rot=0; t.swap=false;
-
-  if(turn===1) p1.push(t);
-  else p2.push(t);
-
+  if(turn===1) p1.push(t); else p2.push(t);
   renderPanels();
-  btnDraw.disabled = hasMoveForCurrentPlayer();
+
   if(hasMoveForCurrentPlayer()){
     setStatus("Добрали костяшку. Теперь можно сделать ход.");
-  }else{
+    btnDraw.disabled = true;
+  } else {
     setStatus("Добрали костяшку, но ходов всё ещё нет — можно добрать ещё.");
-    btnDraw.disabled = false; // можно добирать дальше
+    btnDraw.disabled = false;
   }
-  updateCounts();
 }
 
-/* ---- drag & drop с магнитом ---- */
-let drag = null;
+/* ---------- drag / magnet ----------️ ---------- */
+let drag=null;
 
 function startDrag(tile, owner, e){
-  // создаём "призрак" на boardWrap (в screen coords), чтобы было красиво
   const ghost = renderTileInPanel({...tile}, owner);
-  ghost.style.position = "absolute";
-  ghost.style.pointerEvents = "none";
-  ghost.style.zIndex = 999;
-  ghost.style.transform = (tile.rot===90) ? "rotate(90deg)" : "none";
-
+  ghost.style.position="absolute";
+  ghost.style.pointerEvents="none";
+  ghost.style.zIndex=9999;
   document.body.appendChild(ghost);
 
-  drag = {
-    tileId: tile.id,
-    owner,
-    ghost,
-    startRot: tile.rot,
-    startSwap: tile.swap
-  };
+  drag = { tileId: tile.id, owner, ghost };
 
   moveGhost(e.clientX, e.clientY);
 
   window.addEventListener("pointermove", onDragMove);
-  window.addEventListener("pointerup", onDragUp, { once:true });
+  window.addEventListener("pointerup", onDragUp, {once:true});
 }
 
 function onDragMove(e){
   if(!drag) return;
   moveGhost(e.clientX, e.clientY);
 }
-
-function moveGhost(cx, cy){
-  const g = drag.ghost;
-  g.style.left = (cx - TILE_W/2) + "px";
-  g.style.top  = (cy - TILE_H/2) + "px";
+function moveGhost(cx,cy){
+  drag.ghost.style.left = (cx - TILE_W/2) + "px";
+  drag.ghost.style.top  = (cy - TILE_H/2) + "px";
 }
 
 function onDragUp(e){
   window.removeEventListener("pointermove", onDragMove);
   if(!drag) return;
 
-  const drop = tryPlaceAtEnds(e.clientX, e.clientY, drag.tileId, drag.owner);
+  const ok = tryPlace(e.clientX, e.clientY, drag.tileId, drag.owner);
   drag.ghost.remove();
-  drag = null;
+  drag=null;
 
-  if(!drop){
-    setStatus("Не подходит. Попробуйте к другому концу цепочки.");
-  }
+  if(!ok) setStatus("Не подходит. Поднесите костяшку к зелёному кружку конца цепочки.");
 }
 
-/* вычисляем в какую сторону пользователь “поднес” к концу */
-function pickDirection(end, worldPoint){
-  const dx = worldPoint.x - end.x;
-  const dy = worldPoint.y - end.y;
-  if(Math.abs(dx) >= Math.abs(dy)){
+/* Выбор направления зависит от того, ПОВЕРНУЛА ли ты костяшку:
+   rot=0 => только E/W, rot=90 => только N/S  */
+function pickDirByTileRotation(end, worldPoint, tileRot){
+  const lp = glowPos(end);
+  const dx = worldPoint.x - lp.x;
+  const dy = worldPoint.y - lp.y;
+
+  if(tileRot===0){
     return dx >= 0 ? "E" : "W";
-  }else{
-    return dy >= 0 ? "S" : "N";
   }
+  return dy >= 0 ? "S" : "N";
 }
 
-function tryPlaceAtEnds(clientX, clientY, tileId, owner){
-  if(!leftEnd || !rightEnd) return false;
+function tryPlace(clientX, clientY, tileId, owner){
+  if(!ends.L || !ends.R) return false;
 
-  // точка в мире
   const rect = boardWrap.getBoundingClientRect();
   const sx = clientX - rect.left;
   const sy = clientY - rect.top;
   const wp = screenToWorld(sx, sy);
 
-  // проверяем близость к левому/правому концу (в screen пикселях)
-  const lS = worldToScreen(leftEnd.x, leftEnd.y);
-  const rS = worldToScreen(rightEnd.x, rightEnd.y);
+  const lGlow = glowPos(ends.L);
+  const rGlow = glowPos(ends.R);
 
-  const distL = Math.hypot((sx - lS.x), (sy - lS.y));
-  const distR = Math.hypot((sx - rS.x), (sy - rS.y));
+  const lS = worldToScreen(lGlow.x, lGlow.y);
+  const rS = worldToScreen(rGlow.x, rGlow.y);
 
-  const TH = 70; // порог “магнита” в screen px
+  const distL = Math.hypot(sx - lS.x, sy - lS.y);
+  const distR = Math.hypot(sx - rS.x, sy - rS.y);
 
-  let target = null;
-  if(distL < TH) target = "L";
-  if(distR < TH && (target===null || distR < distL)) target = "R";
+  const TH = 65; // порог магнита
+  let side = null;
+  if(distL < TH) side = "L";
+  if(distR < TH && (side===null || distR < distL)) side = "R";
+  if(!side) return false;
 
-  if(!target) return false;
+  const end = side==="L" ? ends.L : ends.R;
 
-  const hand = (owner===1) ? p1 : p2;
-  const idx = hand.findIndex(t => t.id === tileId);
-  if(idx < 0) return false;
-
+  const hand = owner===1 ? p1 : p2;
+  const idx = hand.findIndex(t=>t.id===tileId);
+  if(idx<0) return false;
   const tile = hand[idx];
 
-  const end = (target==="L") ? leftEnd : rightEnd;
-  const dir = pickDirection(end, wp); // N/E/S/W — куда поднесли относительно конца
+  // совпадение по значению
+  if(tile.a!==end.value && tile.b!==end.value) return false;
 
-  // проверяем совпадение с концом (end.value)
-  if(tile.a !== end.value && tile.b !== end.value) return false;
+  // направление (зависит от rot костяшки)
+  const dir = pickDirByTileRotation(end, wp, tile.rot);
 
-  // ставим swap так, чтобы совпадение было со стороны стыка
-  // стык — это сторона, обращённая к концу.
-  // Для простоты: мы решаем визуально по направлению dir:
-  // если мы кладём на E — значит стык будет слева у новой костяшки
-  // на W — стык справа
-  // на S — стык сверху (но у нас визуально всё равно left/right; мы используем swap только для “какая картинка у стыка”)
-  // на N — стык снизу
-  // Для MVP: у вертикальной костяшки swap = "какая картинка ближе к стыку", всё равно выглядит правильно.
+  // позиция новой кости (цепочка растёт шагом STEP)
+  const v = dirVec(dir);
+  const nx = end.cx + v.x*STEP;
+  const ny = end.cy + v.y*STEP;
 
+  // ориентация кости: rot определяет, но фиксируем логично под dir
+  // (если rot=0, dir будет E/W; если rot=90, dir будет N/S)
+  const placed = { ...tile, x:nx, y:ny };
+
+  // swap: совпадающая должна оказаться "со стороны стыка"
   const match = end.value;
-  const other = (tile.a === match) ? tile.b : tile.a;
+  const other = (tile.a===match) ? tile.b : tile.a;
 
-  // Логика swap:
-  // Если кладём вправо/вниз, оставим совпадающую на "лево" (стык ближе к концу).
-  // Если кладём влево/вверх, совпадающую на "право".
+  // Если цепь идёт в dir, стык у новой костяшки со стороны, противоположной dir
+  // Для нашей разметки: у rot=0 стык слева при dir=E и справа при dir=W
+  // Для rot=90 (после поворота): стык сверху при dir=S и снизу при dir=N
+  // Это корректно работает через left/right до поворота.
   if(dir==="E" || dir==="S"){
-    // совпадение должно стать "слева"
-    tile.swap = !(tile.a === match); // если a==match, swap=false => left=a, ок
+    // стык слева/сверху => match должен стать "left"
+    placed.swap = !(placed.a===match);
   }else{
-    // совпадение должно стать "справа"
-    tile.swap = (tile.a === match); // если a==match, надо swap, чтобы match ушёл вправо
+    // стык справа/снизу => match должен стать "right"
+    placed.swap = (placed.a===match);
   }
 
-  // ориентация:
-  // dir N/S => вертикально (90), E/W => горизонтально (0)
-  tile.rot = (dir==="N" || dir==="S") ? 90 : 0;
-
-  // координаты новой кости — от конца в выбранном направлении
-  const dx = (dir==="E") ? (TILE_W + GAP) : (dir==="W") ? -(TILE_W + GAP) : 0;
-  const dy = (dir==="S") ? (TILE_H + GAP) : (dir==="N") ? -(TILE_H + GAP) : 0;
-
-  const placed = {...tile, x: end.x + dx, y: end.y + dy};
-
-  // убираем из руки
-  hand.splice(idx, 1);
+  // удаляем из руки и кладём на поле
+  hand.splice(idx,1);
   chain.push(placed);
 
-  // обновляем конец цепочки, к которому добавили
-  // новый конец должен стать “снаружи” от поставленной кости:
-  // у этого конца значение = other (не совпадающее)
-  const newEnd = {
-    value: other,
-    x: placed.x + dx/2,
-    y: placed.y + dy/2
-  };
+  // обновляем конец: теперь конец на новой костяшке
+  // новый dir = dir (куда продолжаем)
+  const newEnd = { value: other, cx: nx, cy: ny, dir: dir };
 
-  if(target==="L"){
-    leftEnd = newEnd;
-  }else{
-    rightEnd = newEnd;
-  }
+  if(side==="L") ends.L = newEnd;
+  else ends.R = newEnd;
 
-  // обновляем UI
   renderPanels();
   renderChain();
 
-  // проверяем завершение
   if(p1.length===0 && p2.length===0){
     setStatus("Отличная работа! Мы собрали всё домино.");
-    btnDraw.disabled = true;
+    btnDraw.disabled=true;
     return true;
   }
 
-  // переключаем ход
+  // следующий ход
   setTurn(turn===1 ? 2 : 1);
-
-  // кнопка добора
-  btnDraw.disabled = hasMoveForCurrentPlayer();
 
   if(!hasMoveForCurrentPlayer()){
     setStatus("Ходов нет — нажмите «Добрать».");
-    btnDraw.disabled = false;
+    btnDraw.disabled=false;
   }else{
     setStatus("Сделайте ход: перетащите костяшку к одному из концов цепочки.");
   }
@@ -543,42 +521,28 @@ function tryPlaceAtEnds(clientX, clientY, tileId, owner){
   return true;
 }
 
-function removeFromOwner(tileId, owner){
-  const hand = (owner===1) ? p1 : p2;
-  const idx = hand.findIndex(t => t.id === tileId);
-  if(idx>=0) hand.splice(idx, 1);
-}
+/* ---------- pan/zoom events ---------- */
+let panning=false;
+let panStart=null;
 
-/* ---- пан/зум ---- */
-let panning = false;
-let panStart = null;
-
-boardWrap.addEventListener("pointerdown", (e)=>{
-  // если начали тянуть именно поле (не костяшку) — панорамируем
-  // простое правило: если клик по пустому месту
+boardWrap.addEventListener("pointerdown",(e)=>{
   if(e.target !== boardWrap && e.target !== board && e.target !== layer) return;
-
-  panning = true;
-  panStart = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
+  panning=true;
+  panStart={x:e.clientX,y:e.clientY,vx:view.x,vy:view.y};
   boardWrap.setPointerCapture(e.pointerId);
 });
 
-boardWrap.addEventListener("pointermove", (e)=>{
+boardWrap.addEventListener("pointermove",(e)=>{
   if(!panning) return;
-  const dx = e.clientX - panStart.x;
-  const dy = e.clientY - panStart.y;
-  view.x = panStart.vx + dx;
-  view.y = panStart.vy + dy;
+  view.x = panStart.vx + (e.clientX - panStart.x);
+  view.y = panStart.vy + (e.clientY - panStart.y);
   applyTransform();
 });
-
-boardWrap.addEventListener("pointerup", ()=>{
-  panning = false;
-  panStart = null;
+boardWrap.addEventListener("pointerup",()=>{
+  panning=false; panStart=null;
 });
 
-btnCenter.addEventListener("click", ()=> centerView());
-
+btnCenter.addEventListener("click", centerView);
 btnZoomIn.addEventListener("click", ()=>{
   view.scale = Math.min(SCALE_MAX, +(view.scale + 0.05).toFixed(2));
   applyTransform();
@@ -588,9 +552,10 @@ btnZoomOut.addEventListener("click", ()=>{
   applyTransform();
 });
 
-/* ---- кнопки ---- */
+/* ---------- buttons ---------- */
 btnNew.addEventListener("click", newGame);
 btnDraw.addEventListener("click", drawTile);
 
-/* стартовое */
-setStatus("Откройте редактор и загрузите 7 картинок. Потом нажмите «Новая игра».");
+/* ---------- init text ---------- */
+setStatus("Нажмите «Новая игра». Картинки берутся из set= (из редактора через кнопку «Код для Genially»).");
+centerView();
