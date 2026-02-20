@@ -1,1 +1,281 @@
+:root{
+  --ui-bg: rgba(0,0,0,.45);
+  --ui-border: rgba(255,255,255,.12);
+  --ui-text: rgba(255,255,255,.92);
+  --ui-muted: rgba(255,255,255,.70);
 
+  --tileW: 170px;   /* базовый размер костяшки */
+  --tileH: 86px;
+  --gap: 14px;
+
+  --accent: rgba(120, 255, 190, .9);
+  --danger: rgba(255, 120, 120, .9);
+}
+
+*{ box-sizing:border-box; }
+html,body{ height:100%; margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+a{ color:inherit; }
+
+.page{
+  min-height:100%;
+  background:#0b0b0b;
+  color:var(--ui-text);
+}
+
+.topbar{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  padding:12px 14px;
+  background: var(--ui-bg);
+  border-bottom: 1px solid var(--ui-border);
+  backdrop-filter: blur(6px);
+  position: sticky;
+  top:0;
+  z-index: 50;
+}
+
+.btn{
+  border:1px solid var(--ui-border);
+  background: rgba(255,255,255,.08);
+  color: var(--ui-text);
+  padding:10px 12px;
+  border-radius:12px;
+  cursor:pointer;
+  user-select:none;
+}
+.btn:hover{ background: rgba(255,255,255,.12); }
+.btn:disabled{
+  opacity:.45;
+  cursor:not-allowed;
+}
+.select{
+  border:1px solid var(--ui-border);
+  background: rgba(255,255,255,.08);
+  color: var(--ui-text);
+  padding:10px 10px;
+  border-radius:12px;
+}
+
+.badge{
+  padding:8px 10px;
+  border:1px solid var(--ui-border);
+  border-radius:12px;
+  background: rgba(255,255,255,.06);
+  color: var(--ui-muted);
+}
+
+.container{
+  padding:16px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.h1{ font-size: 22px; margin: 10px 0 12px; }
+.p{ color: var(--ui-muted); margin: 0 0 16px; }
+
+/* ---------- EDITOR ---------- */
+.slots{
+  display:grid;
+  grid-template-columns: repeat(7, minmax(110px, 1fr));
+  gap:12px;
+}
+.slot{
+  border:1px solid var(--ui-border);
+  background: rgba(255,255,255,.06);
+  border-radius:16px;
+  overflow:hidden;
+  aspect-ratio: 1 / 1;
+  position:relative;
+}
+.slot img{
+  width:100%;
+  height:100%;
+  object-fit: cover;
+  display:block;
+}
+.slot .slotOverlay{
+  position:absolute; inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  flex-direction:column;
+  color: rgba(255,255,255,.85);
+}
+.slot input{ display:none; }
+.slot .miniBtn{
+  padding:8px 10px;
+  border-radius:12px;
+  border:1px solid var(--ui-border);
+  background: rgba(0,0,0,.35);
+  cursor:pointer;
+}
+.slot .miniBtn:hover{ background: rgba(0,0,0,.50); }
+
+/* ---------- GAME ---------- */
+.game{
+  height: calc(100vh - 58px);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+
+/* поле */
+.boardWrap{
+  position:relative;
+  flex: 1 1 auto;
+  overflow:hidden;
+  background: #111;
+}
+
+/* фон */
+.board{
+  position:absolute;
+  left:0; top:0;
+  width:100%;
+  height:100%;
+  transform-origin: 0 0;
+  background-size: cover;
+  background-position: center;
+}
+
+/* слой костей */
+.layer{
+  position:absolute;
+  left:0; top:0;
+  width:100%;
+  height:100%;
+  transform-origin: 0 0;
+}
+
+.statusBar{
+  position:absolute;
+  left:50%;
+  bottom: 110px;
+  transform: translateX(-50%);
+  padding:10px 14px;
+  background: rgba(0,0,0,.50);
+  border:1px solid var(--ui-border);
+  border-radius: 14px;
+  color: var(--ui-text);
+  z-index: 20;
+  backdrop-filter: blur(6px);
+}
+
+/* панели игроков */
+.panels{
+  flex: 0 0 120px;
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:12px;
+  padding: 10px 12px;
+  background: var(--ui-bg);
+  border-top: 1px solid var(--ui-border);
+  backdrop-filter: blur(6px);
+}
+
+.panel{
+  border: 1px solid var(--ui-border);
+  border-radius: 16px;
+  padding: 10px;
+  background: rgba(255,255,255,.06);
+  overflow:hidden;
+  position:relative;
+}
+
+.panelHeader{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:8px;
+  color: var(--ui-muted);
+}
+.panel.active{
+  outline: 2px solid rgba(120,255,190,.55);
+  box-shadow: 0 0 0 4px rgba(120,255,190,.12);
+}
+
+.tileRow{
+  display:flex;
+  gap:10px;
+  overflow-x:auto;
+  padding-bottom:6px;
+}
+.tileRow::-webkit-scrollbar{ height:8px; }
+.tileRow::-webkit-scrollbar-thumb{
+  background: rgba(255,255,255,.18);
+  border-radius: 99px;
+}
+
+/* костяшка как элемент */
+.tile{
+  width: var(--tileW);
+  height: var(--tileH);
+  position:relative;
+  border-radius: 14px;
+  flex: 0 0 auto;
+  user-select:none;
+  cursor: grab;
+  transform-origin: center center;
+}
+.tile:active{ cursor: grabbing; }
+
+.tile .base{
+  position:absolute; inset:0;
+  background-size: 100% 100%;
+  background-repeat:no-repeat;
+}
+
+.tile .half{
+  position:absolute;
+  top: 10px;
+  bottom: 10px;
+  width: calc(50% - 8px);
+  border-radius: 10px;
+  overflow:hidden;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.tile .half img{
+  max-width: 92%;
+  max-height: 92%;
+  object-fit: contain;
+  pointer-events:none;
+}
+.tile .left{ left: 8px; }
+.tile .right{ right: 8px; }
+
+.tile.rot90{ transform: rotate(90deg); }
+
+.tile .rotBtn{
+  position:absolute;
+  right: 6px;
+  top: 6px;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  border: 1px solid var(--ui-border);
+  background: rgba(0,0,0,.35);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color: rgba(255,255,255,.90);
+  font-weight:700;
+  cursor:pointer;
+}
+.tile .rotBtn:hover{ background: rgba(0,0,0,.50); }
+
+/* подсветка концов цепочки */
+.endGlow{
+  position:absolute;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(120,255,190,.55);
+  box-shadow: 0 0 0 8px rgba(120,255,190,.16), 0 0 24px rgba(120,255,190,.45);
+  z-index: 10;
+  pointer-events:none;
+  transform: translate(-50%, -50%);
+}
