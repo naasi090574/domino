@@ -4,16 +4,22 @@ const slotsEl = document.getElementById("slots");
 const btnClear = document.getElementById("btnClear");
 const btnSave = document.getElementById("btnSave");
 
-let images = Array(7).fill(null); // dataURL
+// для Genially-кода
+const btnEmbed = document.getElementById("btnEmbed");
+const embedModal = document.getElementById("embedModal");
+const btnEmbedClose = document.getElementById("btnEmbedClose");
+const btnEmbedCopy = document.getElementById("btnEmbedCopy");
+const embedCode = document.getElementById("embedCode");
+const embedHint = document.getElementById("embedHint");
+
+let images = Array(7).fill(null); // dataURL (уже уменьшенные)
 
 function loadFromStorage() {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return;
     const arr = JSON.parse(raw);
-    if (Array.isArray(arr) && arr.length === 7) {
-      images = arr;
-    }
+    if (Array.isArray(arr) && arr.length === 7) images = arr;
   } catch (e) {}
 }
 
@@ -35,7 +41,9 @@ function render() {
     input.addEventListener("change", async () => {
       const file = input.files?.[0];
       if (!file) return;
-      const dataUrl = await fileToDataURL(file);
+
+      // ВАЖНО: уменьшаем до 256px, чтобы влезало в ссылку для Genially
+      const dataUrl = await fileToSmallDataURL(file, 256);
       images[i] = dataUrl;
       render();
     });
@@ -59,8 +67,7 @@ function render() {
     overlay.addEventListener("click", (e) => {
       const del = e.target?.getAttribute?.("data-del");
       if (del !== null) {
-        const idx = Number(del);
-        images[idx] = null;
+        images[Number(del)] = null;
         render();
       }
     });
@@ -69,12 +76,33 @@ function render() {
   }
 }
 
-function fileToDataURL(file) {
+async function fileToSmallDataURL(file, maxSize = 256) {
+  const img = await fileToImage(file);
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+
+  const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+
+  canvas.width = w;
+  canvas.height = h;
+  ctx.drawImage(img, 0, 0, w, h);
+
+  // webp сильно меньше, чем png/jpg
+  return canvas.toDataURL("image/webp", 0.85);
+}
+
+function fileToImage(file) {
   return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = reject;
-    r.readAsDataURL(file);
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = reject;
+    img.src = url;
   });
 }
 
@@ -92,24 +120,30 @@ btnSave.addEventListener("click", () => {
 loadFromStorage();
 render();
 
-/* =========================================================
-   КОД ДЛЯ GENIALLY (кнопка + окно + копирование)
-   ========================================================= */
+/* ================================
+   КОД ДЛЯ GENIALLY (главное!)
+   Передаём картинки в ссылке set=
+   ================================ */
 
-const btnEmbed = document.getElementById("btnEmbed");
-const embedModal = document.getElementById("embedModal");
-const btnEmbedClose = document.getElementById("btnEmbedClose");
-const btnEmbedCopy = document.getElementById("btnEmbedCopy");
-const embedCode = document.getElementById("embedCode");
-const embedHint = document.getElementById("embedHint");
+function base64FromJson(obj) {
+  const json = JSON.stringify(obj);
+  const bytes = new TextEncoder().encode(json);
+  let bin = "";
+  bytes.forEach(b => bin += String.fromCharCode(b));
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
 
-// Надёжно собираем ссылку на game.html в любом варианте URL
 function makeEmbedIframe() {
-  const gameUrl = new URL("game.html", window.location.href).toString();
+  // ссылка на игру
+  const gameUrl = new URL("game.html", window.location.href);
+
+  // set = набор картинок (уменьшенные webp)
+  const set = base64FromJson(images);
+  gameUrl.searchParams.set("set", set);
 
   return `<div style="width:100%;height:720px;">
   <iframe
-    src="${gameUrl}"
+    src="${gameUrl.toString()}"
     style="width:100%;height:100%;border:0;border-radius:16px;overflow:hidden;"
     allow="fullscreen"
     loading="lazy"
@@ -127,19 +161,16 @@ btnEmbedClose?.addEventListener("click", () => {
   if (embedModal) embedModal.style.display = "none";
 });
 
-// клик по затемнению закрывает
 embedModal?.addEventListener("click", (e) => {
   if (e.target === embedModal) embedModal.style.display = "none";
 });
 
 btnEmbedCopy?.addEventListener("click", async () => {
   if (!embedCode) return;
-
   try {
     await navigator.clipboard.writeText(embedCode.value);
     if (embedHint) embedHint.textContent = "Скопировано ✅";
   } catch (e) {
-    // запасной способ (если clipboard запрещён)
     embedCode.focus();
     embedCode.select();
     document.execCommand("copy");
