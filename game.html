@@ -1,1 +1,65 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Домино — игра</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body class="page">
 
+  <div class="topbar">
+    <button class="btn" id="btnNew">Новая игра</button>
+
+    <label class="badge">Раздача:
+      <select class="select" id="dealSelect">
+        <option value="3">3</option>
+        <option value="5" selected>5</option>
+        <option value="7">7</option>
+      </select>
+    </label>
+
+    <button class="btn" id="btnDraw" disabled>Добрать</button>
+
+    <div style="flex:1"></div>
+
+    <button class="btn" id="btnCenter">Центр</button>
+    <button class="btn" id="btnZoomIn">+</button>
+    <button class="btn" id="btnZoomOut">–</button>
+
+    <a class="btn" href="editor.html" style="text-decoration:none;">← Редактор</a>
+  </div>
+
+  <div class="game">
+    <div class="boardWrap" id="boardWrap">
+      <div class="board" id="board"></div>
+      <div class="layer" id="layer"></div>
+
+      <div class="endGlow" id="leftGlow" style="display:none"></div>
+      <div class="endGlow" id="rightGlow" style="display:none"></div>
+
+      <div class="statusBar" id="status">Нажмите «Новая игра»</div>
+    </div>
+
+    <div class="panels">
+      <div class="panel" id="panel1">
+        <div class="panelHeader">
+          <div><b>Педагог</b></div>
+          <div id="p1Count" class="badge">0</div>
+        </div>
+        <div class="tileRow" id="row1"></div>
+      </div>
+
+      <div class="panel" id="panel2">
+        <div class="panelHeader">
+          <div><b>Ребёнок</b></div>
+          <div id="p2Count" class="badge">0</div>
+        </div>
+        <div class="tileRow" id="row2"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
