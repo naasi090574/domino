@@ -6,13 +6,14 @@
   <title>Редактор домино</title>
   <link rel="stylesheet" href="style.css"/>
 </head>
+
 <body class="page">
   <div class="topbar">
     <div class="badge">Редактор (загрузка 7 картинок)</div>
     <button class="btn" id="btnClear">Очистить</button>
-<button class="btn" id="btnSave">Сохранить набор</button>
-<button class="btn" id="btnEmbed">Код для Genially</button>
-<a class="btn" id="btnGoGame" href="game.html" style="text-decoration:none;">Перейти в игру →</a>
+    <button class="btn" id="btnSave">Сохранить набор</button>
+    <button class="btn" id="btnEmbed">Код для Genially</button>
+    <a class="btn" id="btnGoGame" href="game.html" style="text-decoration:none;">Перейти в игру →</a>
   </div>
 
   <div class="container">
@@ -25,6 +26,42 @@
       Совет: лучше квадратные картинки или с прозрачным фоном (PNG), чтобы красиво вставлялись в половинки домино.
     </div>
   </div>
+
+  <!-- ===== МОДАЛЬНОЕ ОКНО: КОД ДЛЯ GENIALLY ===== -->
+  <div id="embedModal" style="
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.60);
+    z-index:9999; padding:20px;">
+    <div style="
+      max-width:900px; margin:60px auto; background:rgba(20,20,20,.95);
+      border:1px solid rgba(255,255,255,.12); border-radius:16px;
+      padding:16px; color:#fff;">
+
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <div style="font-weight:700;">Код для вставки игры в Genially</div>
+        <button class="btn" id="btnEmbedClose">Закрыть</button>
+      </div>
+
+      <p style="color:rgba(255,255,255,.75); margin:10px 0 12px;">
+        Скопируйте код ниже и вставьте в Genially → «Встроить / Embed / HTML».
+      </p>
+
+      <textarea id="embedCode" style="
+        width:100%; height:140px; border-radius:14px; padding:12px;
+        border:1px solid rgba(255,255,255,.12);
+        background:rgba(0,0,0,.35); color:#fff; resize:vertical;"
+        readonly></textarea>
+
+      <div style="display:flex; gap:10px; margin-top:12px; align-items:center;">
+        <button class="btn" id="btnEmbedCopy">Скопировать</button>
+        <div id="embedHint" style="color:rgba(255,255,255,.75);"></div>
+      </div>
+
+      <div style="margin-top:10px; color:rgba(255,255,255,.60); font-size:14px;">
+        Подсказка: высоту <b>720px</b> в коде можно поменять под свой слайд (например 600px или 800px).
+      </div>
+    </div>
+  </div>
+  <!-- ===== /МОДАЛЬНОЕ ОКНО ===== -->
 
   <script src="editor.js"></script>
 </body>
